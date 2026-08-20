@@ -11,7 +11,7 @@ on:
         type: choice
         required: true
         default: setup
-        options: [setup, drop-now, refresh, scan-now, book, cancel, move]
+        options: [setup, drop-now, rehearse, refresh, scan-now, book, cancel, move]
       resource:
         description: "Course, e.g. OLD_18 (book/move only)"
         required: false
@@ -175,6 +175,12 @@ jobs:
         run: |
           set -o pipefail
           python -m bot.drop --now 2>&1 | tee -a /tmp/teebot.log
+
+      - name: Dress rehearsal
+        if: steps.mode.outputs.mode == 'rehearse'
+        run: |
+          set -o pipefail
+          python -m bot.drop --rehearse 6 2>&1 | tee -a /tmp/teebot.log
 
       # Cancellation scanning is switched off for now. `scan-now` still works
       # by hand if you want to try it.
