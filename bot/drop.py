@@ -107,7 +107,12 @@ def _safe_bookings(client):
         return []
 
 
-def run(fire_now: bool = False) -> int:
+def run(fire_now: bool = False, rehearse: int = 0) -> int:
+    """
+    rehearse=N pretends the sheet opens N minutes from now, so the whole
+    sequence - queue watch, join attempt, booking - runs end to end in a few
+    minutes instead of at 6am. Nothing is booked while dry_run is on.
+    """
     cfg = Config.load()
     state = State()
     notifier = Notifier(cfg, state, Mailer(cfg))
@@ -115,6 +120,11 @@ def run(fire_now: bool = False) -> int:
     now = now_perth()
     today = now.date()
     open_at = dt.datetime.combine(today, cfg.booking_open_time, tzinfo=PERTH)
+    if rehearse:
+        open_at = now + dt.timedelta(minutes=rehearse)
+        log.info("REHEARSAL: pretending the sheet opens at %s (in %d min).",
+                 open_at.strftime("%H:%M:%S"), rehearse)
+        log.info("Everything runs for real except the booking itself.")
 
     plan = plan_for(cfg, state, today)
     if not plan:
@@ -143,18 +153,24 @@ def run(fire_now: bool = False) -> int:
     # Wembley orders the queue by arrival, so this is the part that decides
     # how good a tee time you get. Watch for it opening and join at once.
     if not fire_now and cfg.queue_enabled:
-        watch_start = open_at - dt.timedelta(minutes=cfg.queue_watch_minutes)
+        watch_minutes = min(cfg.queue_watch_minutes, rehearse) if rehearse \
+            else cfg.queue_watch_minutes
+        sprint_minutes = min(cfg.queue_sprint_minutes, max(1, rehearse - 1)) \
+            if rehearse else cfg.queue_sprint_minutes
+        watch_start = open_at - dt.timedelta(minutes=watch_minutes)
         if now < watch_start:
             wait_until(watch_start, "until the queue could open")
         log.info("Watching for the queue (up to %d min before 6am, checking "
                  "every %.0fs, then every %.0fs from %d min out).",
-                 cfg.queue_watch_minutes, cfg.queue_poll_seconds,
-                 cfg.queue_sprint_seconds, cfg.queue_sprint_minutes)
-        Q.watch_and_join(client, queue_pages(client, plan), state, open_at,
-                         watch_minutes=cfg.queue_watch_minutes,
-                         poll_seconds=cfg.queue_poll_seconds,
-                         sprint_minutes=cfg.queue_sprint_minutes,
-                         sprint_seconds=cfg.queue_sprint_seconds)
+                 watch_minutes, cfg.queue_poll_seconds,
+                 cfg.queue_sprint_seconds, sprint_minutes)
+        found = Q.watch_and_join(client, queue_pages(client, plan), state, open_at,
+                                 watch_minutes=watch_minutes,
+                                 poll_seconds=cfg.queue_poll_seconds,
+                                 sprint_minutes=sprint_minutes,
+                                 sprint_seconds=cfg.queue_sprint_seconds)
+        for tag, st_ in found.items():
+            log.info("Queue result for %s: %s", tag, st_)
         state.save()
 
     # ---- phase 2: wait to be admitted -----------------------------------
@@ -207,4 +223,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--now", action="store_true",
                     help="skip the waiting and book whatever is open")
-    sys.exit(_main(run, fire_now=ap.parse_args().now))
+    ap.add_argument("--rehearse", type=int, default=0, metavar="MINUTES",
+                    help="pretend the sheet opens this many minutes from now")
+    a = ap.parse_args()
+    sys.exit(_main(run, fire_now=a.now, rehearse=a.rehearse))
