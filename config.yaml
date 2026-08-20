@@ -1,0 +1,96 @@
+# Wembley tee-time preferences.
+# Nothing secret in here. Credentials live in GitHub Secrets.
+
+# Leave this on until you've watched a few runs in the Actions log and are
+# happy with what it says it WOULD have done. Then set it to false.
+dry_run: true
+
+booking:
+  # The site says 10 days, but it behaves like 11: the Sunday sheet appears at
+  # 6am on the Wednesday before. Verify with `python -m bot.calibrate`.
+  open_days_ahead: 11
+  open_time: "06:00"      # 6am AWST
+
+  queue:
+    # Wembley runs a first-come queue before the 6am release, not a random
+    # draw. Your position is decided by WHEN you join, so the bot watches for
+    # the queue to open and joins within a second or so. This is the part that
+    # decides whether you get 7:20 or 10:40.
+    enabled: true
+    watch_from_minutes: 25    # start watching this far out
+    poll_seconds: 4           # gentle checks while it's still early
+    sprint_from_minutes: 12   # from here, check every second
+    sprint_seconds: 1
+
+  # Check this many days either side of the number above, in case the club
+  # counts differently to how we think. Costs one extra request.
+  probe_spread: 1
+
+  # Never hold more than this many upcoming tee times. Stops the job booking
+  # both Saturday and Sunday when you only wanted one round. Raise it if you
+  # genuinely want several on the go.
+  max_upcoming: 1
+
+# ---------------------------------------------------------------------------
+# Your standing preferences.
+#
+# Each target is a window. The 6am job takes the best thing it can get inside
+# one; the scanner then spends the next ten days trying to improve on it.
+#
+# Courses: OLD_18  TUART_18  OLD_9  TUART_9
+# weekday: a day name, a list of day names, or weekday / weekend / any
+# ---------------------------------------------------------------------------
+targets:
+  - label: "Saturday morning 18"
+    weekday: saturday       # sheet opens 6am the Wednesday before
+    resources: [TUART_18, OLD_18]
+    earliest: "06:20"       # widest you'd accept
+    latest: "09:00"
+    ideal: "07:20"          # what you actually want. Upgrades aim here.
+    players: 4
+    priority: 10            # lower wins when two windows both match
+
+  - label: "Sunday morning 18"
+    weekday: sunday
+    resources: [OLD_18, TUART_18]
+    earliest: "07:00"
+    latest: "09:30"
+    ideal: "07:40"
+    players: 4
+    priority: 20
+
+  - label: "Midweek twilight nine"
+    weekday: [wednesday, thursday]
+    resources: [TUART_9, OLD_9]
+    earliest: "16:00"
+    latest: "17:45"
+    players: 2
+    priority: 40
+    enabled: false          # flip to true when you want it hunting
+
+# ---------------------------------------------------------------------------
+# Cancellation scanning - OFF for now.
+#
+# One thing at a time: get the 6am release working first. When you want it,
+# set enabled: true and add the scan schedule back to the workflow. `upgrade`
+# trades a booking you already hold up to a better one when someone cancels.
+# ---------------------------------------------------------------------------
+scan:
+  enabled: false
+  mode: auto
+  upgrade: true
+  upgrade_min_gain: 0.5
+  upgrade_max_per_date: 3
+  lookahead_days: 14
+  poll_seconds: 90          # gap between sweeps. Don't go below 45.
+  run_from: "06:00"         # only scan during civilised hours
+  run_until: "20:00"
+  reply_window_minutes: 45
+
+email:
+  enabled: false            # push notifications are the default channel
+  to: ""
+  from: ""
+  smtp_host: smtp.gmail.com
+  smtp_port: 465
+  imap_host: imap.gmail.com
